@@ -1,0 +1,51 @@
+# Full model: RS-MRQ + RobustVote + KDE
+seed: 0
+sampling_leaf: 5.0
+normal_k: 5
+angle_step_deg: 12.0
+scene_ref_sampling_rate: 20
+pos_thresh: 0.005
+rot_thresh_deg: 30.0
+registration_runs: 1
+visualize: false
+distance_step_ratio: 0.6
+
+enable_rsmrq: true
+enable_robust_vote: true
+enable_kde_refine: true
+
+rsmrq:
+  L: 2
+  T_tables: 4
+  w_levels:
+    - [0.20943951, 0.20943951, 0.20943951, 3.0]
+    - [0.41887902, 0.41887902, 0.41887902, 6.0]
+  merge_mode: count
+  seed: 0
+
+robust_vote:
+  kernel: gaussian
+  sigma: 0.6
+  tau: 1.0
+  B: 1.0
+  top_m_per_bucket: 50
+  normalize_feature: true
+
+kde_refine:
+  use_angle_embedding: true
+  top_k: 3
+  bandwidth_h: 0.35
+  max_iter: 50
+  tol: 1.0e-4
+
+icp_refine:
+  enable: false
+  max_iter: 30
+  distance_threshold: 5.0
+
+output:
+  root: experiments
+  results_dir: experiments/results
+  logs_dir: experiments/logs
+  tables_dir: experiments/tables
+  figures_dir: experiments/figures

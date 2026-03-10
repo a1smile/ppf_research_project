@@ -1,0 +1,75 @@
+seed: 0
+
+# ---------- Baseline PPF parameters (must match ppf_baseline_open3d.py defaults) ----------
+sampling_leaf: 5.0
+normal_k: 5
+
+angle_step_deg: 12.0
+scene_ref_sampling_rate: 20
+pos_thresh: 0.005
+rot_thresh_deg: 30.0
+
+registration_runs: 1
+visualize: false
+
+# distance_step = 0.6 * sampling_leaf (computed in code)
+distance_step_ratio: 0.6
+
+# ---------- Enhancements switches ----------
+enable_rsmrq: false
+enable_robust_vote: false
+enable_kde_refine: false
+
+# ---------- RS-MRQ Hashing ----------
+rsmrq:
+  L: 2
+  T_tables: 4
+  # w_levels are in (rad, rad, rad, distance) on transformed feature g:
+  # g = [f1+pi, acos(f2), acos(f3), f4]
+  # Default values correspond to baseline step sizes at sampling_leaf=5:
+  # angle_step=12deg=0.20943951 rad, distance_step=0.6*5=3.0
+  w_levels:
+    - [0.20943951, 0.20943951, 0.20943951, 3.0]
+    - [0.41887902, 0.41887902, 0.41887902, 6.0]
+  merge_mode: union   # union | count
+  seed: 0
+
+# ---------- Robust Voting ----------
+robust_vote:
+  kernel: gaussian    # trunc | gaussian | huber | tukey
+  sigma: 0.6
+  tau: 1.0
+  B: 1.0
+  top_m_per_bucket: 50
+  normalize_feature: true
+  # if normalize_feature=true, residual uses scales=[pi, pi, pi, model_diameter]
+  # otherwise scales=[1,1,1,1]
+
+# ---------- KDE + Mean-Shift Refinement ----------
+kde_refine:
+  use_angle_embedding: true
+  top_k: 3
+  bandwidth_h: 0.35
+  max_iter: 50
+  tol: 1.0e-4
+
+# ---------- Optional ICP refinement ----------
+icp_refine:
+  enable: false
+  max_iter: 30
+  distance_threshold: 5.0
+
+# ---------- (NEW) BOP / LM-O GT helper ----------
+# LM-O / BOP scene_gt.json uses cam_t_m2c typically in millimeters.
+# If your point clouds are in mm: t_scale=1.0
+# If your point clouds are in meters: t_scale=0.001
+bop_gt:
+  t_scale: 1.0
+
+# ---------- Output folders ----------
+output:
+  root: experiments
+  results_dir: experiments/results
+  logs_dir: experiments/logs
+  tables_dir: experiments/tables
+  figures_dir: experiments/figures

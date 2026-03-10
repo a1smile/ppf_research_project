@@ -1,0 +1,6 @@
+numpy>=1.21
+open3d>=0.17
+pyyaml>=6.0
+pandas>=1.5
+matplotlib>=3.6
+tqdm>=4.66

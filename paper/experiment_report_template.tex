@@ -1,0 +1,89 @@
+
+---
+
+### 文件: ppf_research_project/paper/experiment_report_template.tex
+```tex
+\documentclass[10pt]{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+\title{PPF Enhancements: RS--MRQ Hashing, Robust Voting, and KDE Mean-Shift Refinement}
+\author{(Your Name)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report template summarizes experimental results for the proposed PPF enhancements:
+(1) Random-Shift Multi-Resolution Quantization hashing (RS--MRQ),
+(2) Robust M-estimation voting with top-$m$ truncation,
+(3) Continuous peak refinement via KDE + Mean-Shift on angle embeddings.
+\end{abstract}
+
+\section{Introduction}
+Write motivation: baseline PPF suffers from bin-boundary misses, bucket collisions/outliers, and bin-center accuracy ceiling.
+
+\section{Method}
+\subsection{Baseline}
+Briefly describe baseline pipeline: pair feature computation, hash, voting, peak selection, pose composition, clustering.
+
+\subsection{RS--MRQ Hashing}
+Provide formula:
+\[
+Q_{w,u}(g)=\left\lfloor\frac{g+u}{w}\right\rfloor,\quad u\sim\mathrm{Unif}([0,w))
+\]
+Explain multi-resolution and multi-table recall.
+
+\subsection{Robust Voting}
+Residual:
+\[
+r=\left\|\frac{g_s-g_m}{s}\right\|_2
+\]
+Weights (choose kernel):
+Trunc/Gaussian/Huber/Tukey.
+Bounded contribution:
+\[
+X=\min(B,\omega(r))
+\]
+
+\subsection{KDE + Mean-Shift Refinement}
+Angle embedding:
+\[
+x=[\cos\theta,\sin\theta]
+\]
+KDE:
+\[
+f(x)=\sum_i w_i\exp\left(-\frac{\|x-x_i\|^2}{2h^2}\right)
+\]
+Mean-Shift update:
+\[
+x^{t+1}=\frac{\sum_i w_i x_i\exp(-\|x^t-x_i\|^2/(2h^2))}{\sum_i w_i\exp(-\|x^t-x_i\|^2/(2h^2))}
+\]
+
+\section{Experiments}
+\subsection{Setup}
+Hardware/OS/Python/Open3D versions. Dataset info.
+
+\subsection{Metrics}
+ADD, ADD-S, rotation error, translation error, runtime.
+
+\subsection{Ablation}
+Include table:
+\input{../experiments/tables/ablation_results.tex}
+
+Include figures (examples):
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.32\linewidth]{../experiments/figures/ablation_add.pdf}
+\includegraphics[width=0.32\linewidth]{../experiments/figures/ablation_roterr.pdf}
+\includegraphics[width=0.32\linewidth]{../experiments/figures/ablation_time.pdf}
+\caption{Ablation comparison of ADD, rotation error, and runtime.}
+\end{figure}
+
+\section{Conclusion}
+Summarize findings and discuss tradeoffs between recall, robustness, and refinement accuracy.
+
+\end{document}
