@@ -1,75 +1,133 @@
+# 随机种子，用于控制实验复现性。
 seed: 0
 
+# 中文说明：以下是基线 PPF 参数，原则上应与基线实现默认值保持一致。
 # ---------- Baseline PPF parameters (must match ppf_baseline_open3d.py defaults) ----------
+# 体素下采样的叶子尺寸，用于降低点云密度。
 sampling_leaf: 5.0
+# 法向量估计时使用的邻域点数量。
 normal_k: 5
 
+# 角度离散步长，单位为度。
 angle_step_deg: 12.0
+# 场景参考点的采样步长或采样率控制参数。
 scene_ref_sampling_rate: 20
+# 位置误差阈值，用于候选匹配筛选。
 pos_thresh: 0.005
+# 旋转误差阈值，单位为度。
 rot_thresh_deg: 30.0
 
+# 每次配准任务重复执行的次数。
 registration_runs: 1
+# 是否在运行结束后进行可视化显示。
 visualize: false
 
+# 中文说明：distance_step 由代码根据 sampling_leaf 和该比例系数计算得到。
 # distance_step = 0.6 * sampling_leaf (computed in code)
+# 距离步长相对 sampling_leaf 的比例系数。
 distance_step_ratio: 0.6
 
+# 中文说明：以下三个开关用于控制增强模块是否启用。
 # ---------- Enhancements switches ----------
+# 是否启用 RS-MRQ 增强模块。
 enable_rsmrq: false
+# 是否启用鲁棒投票增强模块。
 enable_robust_vote: false
+# 是否启用 KDE 精化增强模块。
 enable_kde_refine: false
 
+# 中文说明：以下是 RS-MRQ 哈希相关配置。
 # ---------- RS-MRQ Hashing ----------
 rsmrq:
+  # 哈希层数或多分辨率层级数。
   L: 2
+  # 每层使用的哈希表数量。
   T_tables: 4
+  # 中文说明：w_levels 作用在变换后的特征 g 上，通常依次对应三个角度维和一个距离维。
   # w_levels are in (rad, rad, rad, distance) on transformed feature g:
+  # 中文说明：g 的构造方式如下。
   # g = [f1+pi, acos(f2), acos(f3), f4]
+  # 中文说明：默认值对应 sampling_leaf=5 时的基线步长设定。
   # Default values correspond to baseline step sizes at sampling_leaf=5:
+  # 中文说明：角度步长为 12 度，距离步长为 0.6*5=3.0。
   # angle_step=12deg=0.20943951 rad, distance_step=0.6*5=3.0
+  # 多层级离散窗口设置。
   w_levels:
+    # 第一层的角度和距离窗口设置。
     - [0.20943951, 0.20943951, 0.20943951, 3.0]
+    # 第二层的角度和距离窗口设置。
     - [0.41887902, 0.41887902, 0.41887902, 6.0]
+  # 多表结果合并方式，可选 union 或 count。
   merge_mode: union   # union | count
+  # RS-MRQ 模块内部使用的随机种子。
   seed: 0
 
+# 中文说明：以下是鲁棒投票模块配置。
 # ---------- Robust Voting ----------
 robust_vote:
+  # 核函数类型，可选 trunc、gaussian、huber、tukey。
   kernel: gaussian    # trunc | gaussian | huber | tukey
+  # 核函数或残差分布的尺度参数。
   sigma: 0.6
+  # 截断或鲁棒阈值参数。
   tau: 1.0
+  # 额外的缩放或权重控制参数。
   B: 1.0
+  # 每个桶中保留的前若干个候选数。
   top_m_per_bucket: 50
+  # 是否对特征进行归一化后再参与投票。
   normalize_feature: true
+  # 中文说明：若启用归一化，则残差使用指定尺度。
   # if normalize_feature=true, residual uses scales=[pi, pi, pi, model_diameter]
+  # 中文说明：否则残差各维统一按 1 处理。
   # otherwise scales=[1,1,1,1]
 
+# 中文说明：以下是 KDE 与均值漂移精化模块配置。
 # ---------- KDE + Mean-Shift Refinement ----------
 kde_refine:
+  # 是否使用角度嵌入表示。
   use_angle_embedding: true
+  # 精化阶段保留的 top-k 候选数量。
   top_k: 3
+  # KDE 带宽参数。
   bandwidth_h: 0.35
+  # 最大迭代次数。
   max_iter: 50
+  # 迭代收敛容差。
   tol: 1.0e-4
 
+# 中文说明：以下是可选的 ICP 精化配置。
 # ---------- Optional ICP refinement ----------
 icp_refine:
+  # 是否启用 ICP 精化。
   enable: false
+  # ICP 最大迭代次数。
   max_iter: 30
+  # ICP 匹配距离阈值。
   distance_threshold: 5.0
 
+# 中文说明：以下是 BOP / LM-O 真值辅助配置。
 # ---------- (NEW) BOP / LM-O GT helper ----------
+# 中文说明：LM-O / BOP 的 scene_gt.json 中，cam_t_m2c 通常使用毫米单位。
 # LM-O / BOP scene_gt.json uses cam_t_m2c typically in millimeters.
+# 中文说明：若点云单位是毫米，则 t_scale 设为 1.0。
 # If your point clouds are in mm: t_scale=1.0
+# 中文说明：若点云单位是米，则 t_scale 设为 0.001。
 # If your point clouds are in meters: t_scale=0.001
 bop_gt:
+  # 真值平移向量的单位缩放系数。
   t_scale: 1.0
 
+# 中文说明：以下是实验输出目录配置。
 # ---------- Output folders ----------
 output:
+  # 实验输出根目录。
   root: experiments
+  # 结果文件输出目录。
   results_dir: experiments/results
+  # 日志文件输出目录。
   logs_dir: experiments/logs
+  # 表格文件输出目录。
   tables_dir: experiments/tables
+  # 图像文件输出目录。
   figures_dir: experiments/figures
