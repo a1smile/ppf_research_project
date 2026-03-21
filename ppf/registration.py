@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, Tuple, List
 
+# 中文说明：该模块实现从模型和场景点云到最终位姿估计的完整注册流程。
+
 import numpy as np
 import open3d as o3d
 
@@ -24,33 +26,50 @@ from .refine_icp import refine_icp_point_to_point
 from .model_cache_io import load_ppf_model_cache
 
 
+# 计算场景参考点到参考坐标系的刚体变换。
 def compute_transform_sg(scene_ref_p: np.ndarray, scene_ref_n: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    # 定义基准 x 轴和备用 y 轴。
     ex = np.array([1.0, 0.0, 0.0], dtype=float)
     ey = np.array([0.0, 1.0, 0.0], dtype=float)
+    # 对场景参考法向量做归一化。
     n = scene_ref_n / (np.linalg.norm(scene_ref_n) + 1e-12)
+    # 计算将法向量对齐到 x 轴的旋转轴。
     axis = np.cross(n, ex)
     axis_norm = np.linalg.norm(axis)
     if axis_norm == 0.0:
         axis = ey.copy()
         axis_norm = 1.0
     axis /= axis_norm
+    # 计算旋转角度。
     angle = math.acos(max(-1.0, min(1.0, float(n @ ex))))
+    # 构造旋转矩阵。
     R = rotation_matrix_from_axis_angle(axis, angle)
+    # 计算平移项，使参考点平移到局部原点。
     t = R @ (-scene_ref_p)
+    # 组装为 4x4 仿射变换矩阵。
     T = make_affine(R, t)
+    # 返回完整变换和旋转部分。
     return T, R
 
 
+# 定义注册过程的统计结果结构。
 @dataclass
 class RegistrationStats:
+    # 模型构建或缓存加载阶段耗时。
     model_build_time: float
+    # 注册主循环耗时。
     registration_time: float
+    # 整体流程总耗时。
     total_time: float
+    # 候选膨胀的平均倍数。
     candidate_inflation_mean: float
+    # 鲁棒投票模块统计摘要。
     robust_vote_summary: dict
+    # KDE 精化调用次数。
     kde_refine_calls: int
 
 
+# 执行 PPF 注册主循环，并返回最终位姿和调试信息。
 def ppf_register(
     model: PPFModel,
     scene_pcd: o3d.geometry.PointCloud,
@@ -61,18 +80,23 @@ def ppf_register(
     Baseline-compatible core loop with 3 optional enhancements.
     Returns (T_final, debug_info).
     """
+    # 读取三个增强模块的开关状态。
     enable_rsmrq = bool(cfg.get("enable_rsmrq", False))
     enable_robust = bool(cfg.get("enable_robust_vote", False))
     enable_kde = bool(cfg.get("enable_kde_refine", False))
 
+    # 根据配置按需构造鲁棒投票器和 KDE 精化器。
     voter = RobustVoter(cfg.get("robust_vote", {}), logger=logger) if enable_robust else None
     refiner = KDEMeanShiftRefiner(cfg.get("kde_refine", {}), logger=logger) if enable_kde else None
 
+    # 读取场景点和法向量数组。
     scene_pts = np.asarray(scene_pcd.points).astype(np.float64)
     scene_normals = np.asarray(scene_pcd.normals).astype(np.float64)
     Nscene = len(scene_pts)
 
+    # 根据角度步长确定投票累加器的 bin 数量。
     aux_size = int(math.ceil(2.0 * math.pi / model.angle_step))
+    # 鲁棒投票时使用浮点累加器，否则使用整型累加器。
     acc_dtype = np.float32 if enable_robust else np.int32
     accumulator = np.zeros((len(model.pts), aux_size), dtype=acc_dtype)
 
@@ -92,6 +116,7 @@ def ppf_register(
     pos_thresh = float(cfg.get("pos_thresh", 0.005))
     rot_thresh_rad = math.radians(float(cfg.get("rot_thresh_deg", 30.0)))
 
+    # 按设定步长遍历场景参考点。
     for sr in range(0, Nscene, scene_ref_sampling_rate):
         sr_p = scene_pts[sr]
         sr_n = scene_normals[sr]
@@ -279,6 +304,7 @@ def ppf_register(
     return T_final, debug
 
 
+# 对外暴露的完整注册入口，负责读取点云、构建或加载模型、执行注册并整理输出。
 def run_registration(
     model_path: str,
     scene_path: str,
@@ -295,9 +321,11 @@ def run_registration(
     - run registration (with optional enhancements)
     - optional ICP refinement
     """
+    # 读取随机种子并设置全局随机状态。
     seed = int(cfg.get("seed", 0))
     set_global_seed(seed)
 
+    # 读取基础参数并换算角度/距离步长。
     sampling_leaf = float(cfg.get("sampling_leaf", 5.0))
     normal_k = int(cfg.get("normal_k", 5))
     angle_step_deg = float(cfg.get("angle_step_deg", 12.0))
@@ -307,14 +335,17 @@ def run_registration(
     t0 = time.perf_counter()
 
     # read
+    # 读取模型点云并检查是否为空。
     cloud_model = o3d.io.read_point_cloud(model_path)
     if len(cloud_model.points) == 0:
         raise ValueError(f"Empty model: {model_path}")
+    # 读取场景点云并检查是否为空。
     cloud_scene = o3d.io.read_point_cloud(scene_path)
     if len(cloud_scene.points) == 0:
         raise ValueError(f"Empty scene: {scene_path}")
 
     # ✅ 最小改动：model preprocess + build 改为 “load cache or build”
+    # 若提供缓存路径则优先加载缓存，否则在线构建模型。
     model_down = None
     if model_cache_path:
         with Timer("model_load_cache", logger=logger) as tm:
@@ -330,6 +361,7 @@ def run_registration(
         T_pred, debug = ppf_register(ppf_model, scene_down, cfg, logger=logger)
 
     # optional ICP refine on downsampled clouds
+    # 如果开启了 ICP 精化，则在注册结果基础上继续优化。
     icp_cfg = cfg.get("icp_refine", {})
     if bool(icp_cfg.get("enable", False)):
         if logger:
@@ -347,12 +379,15 @@ def run_registration(
         T_pred = T_ref
 
     # output model cloud transformed (downsampled points as in baseline core)
+    # 构造输出模型点云，将模型点按预测位姿变换到场景中。
     out_model = o3d.geometry.PointCloud()
     P = (T_pred[:3, :3] @ ppf_model.pts.T).T + T_pred[:3, 3]
     out_model.points = o3d.utility.Vector3dVector(P)
 
+    # 计算整体总耗时。
     total_time = time.perf_counter() - t0
 
+    # 整理并返回统计信息。
     stats = RegistrationStats(
         model_build_time=tm.elapsed,
         registration_time=tr.elapsed,
@@ -362,4 +397,5 @@ def run_registration(
         kde_refine_calls=int(debug.get("kde_refine_calls", 0))
     )
 
+    # 返回预测位姿、变换后的模型点云、调试信息和统计信息。
     return T_pred, out_model, debug, stats
