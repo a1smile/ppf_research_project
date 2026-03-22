@@ -78,6 +78,8 @@ def build_ppf_model(
     # 模型点数。
     N = len(pts)
 
+    print(f"[DEBUG] model downsampled points: {N}")
+
     # 初始化 alpha_m 查表。
     alpha_m = [[0.0 for _ in range(N)] for __ in range(N)]
     # 初始化模型直径。
