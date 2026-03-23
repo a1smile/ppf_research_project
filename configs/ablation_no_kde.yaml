@@ -1,96 +1,142 @@
-# 中文说明：该配置启用 RS-MRQ 和 RobustVote，关闭 KDE 精化。
-# +RS-MRQ +RobustVote only (KDE off)
-# 随机种子，用于控制实验复现性。
+﻿# 消融配置：关闭 KDE。
+# 该配置启用 RS-MRQ 和 Robust Vote，关闭 KDE 与 Pose Clustering。
+
+# 随机种子，用于保证实验可复现。
 seed: 0
-# 体素下采样的叶子尺寸，用于降低点云密度。
+# 体素下采样尺寸，用于控制点云密度。
 sampling_leaf: 15.0
-# 法向量估计时使用的邻域点数量。
+# 法向估计时使用的近邻点数量。
 normal_k: 5
-# 角度离散步长，单位为度。
+# PPF 角度离散步长，单位为度。
 angle_step_deg: 12.0
-# 场景参考点的采样步长或采样率控制参数。
+# 场景参考点采样步长。
 scene_ref_sampling_rate: 20
-# 位置误差阈值，用于候选匹配筛选。
+# 原始 cluster_poses 使用的平移阈值。
 pos_thresh: 0.005
-# 旋转误差阈值，单位为度。
+# 原始 cluster_poses 使用的旋转阈值，单位为度。
 rot_thresh_deg: 30.0
-# 每次配准任务重复执行的次数。
+# 每次实验重复运行次数。
 registration_runs: 1
-# 是否在运行结束后进行可视化显示。
+# 是否在运行结束后进行可视化。
 visualize: false
-# 距离步长相对 sampling_leaf 的比例系数。
+# 距离步长相对于 sampling_leaf 的比例。
 distance_step_ratio: 0.6
 
-# 是否启用 RS-MRQ 增强模块。
+# ---------- Adaptive Downsampling ----------
+# 是否启用自适应下采样。
+adaptive_downsample: true
+# 自适应下采样作用对象，这里只对场景点云生效。
+adaptive_downsample_apply_to: scene
+
+# 自适应下采样细节参数。
+adaptive_downsample_cfg:
+  # 点数不超过该阈值时不做下采样。
+  no_downsample_thresh: 450
+  # 中等规模样本阈值。
+  mid_thresh: 1500
+  # 大规模样本阈值。
+  large_thresh: 3000
+  # 中等规模目标点数。
+  target_mid: 500
+  # 大规模目标点数。
+  target_large: 450
+  # 超大规模目标点数。
+  target_xlarge: 400
+  # 搜索合适 voxel 尺寸时的迭代步数。
+  search_steps: 12
+  # voxel 搜索下界。
+  voxel_min: 1.0e-3
+  # voxel 搜索上界比例，实际与包围盒对角线相乘使用。
+  voxel_max_scale: 0.20
+
+# 当前配置启用 RS-MRQ 和 Robust Vote，关闭 KDE。
+# 是否启用 RS-MRQ 多分辨率哈希检索。
 enable_rsmrq: true
-# 是否启用鲁棒投票增强模块。
+# 是否启用鲁棒投票。
 enable_robust_vote: true
-# 是否启用 KDE 精化增强模块。
+# 是否启用 KDE 角度精修。
 enable_kde_refine: false
 
-# RS-MRQ 相关配置分组。
+# RS-MRQ 哈希相关配置。
 rsmrq:
-  # 哈希层数或多分辨率层级数。
+  # 多分辨率层数。
   L: 2
   # 每层使用的哈希表数量。
   T_tables: 4
-  # 不同层级下的离散窗口参数，通常对应三个角度维度和一个距离维度。
+  # 每一层的离散窗口参数。
   w_levels:
-    # 第一层的角度和距离窗口设置。
     - [0.20943951, 0.20943951, 0.20943951, 3.0]
-    # 第二层的角度和距离窗口设置。
     - [0.41887902, 0.41887902, 0.41887902, 6.0]
-  # 多表结果的合并方式。
+  # 使用 count 合并，保留重复候选次数。
   merge_mode: count
-  # RS-MRQ 模块内部使用的随机种子。
+  # RS-MRQ 内部随机种子。
   seed: 0
 
-# 鲁棒投票模块相关配置。
+# 鲁棒投票参数配置。
 robust_vote:
-  # 核函数类型。
+  # 鲁棒核函数类型。
   kernel: gaussian
-  # 核函数或残差分布的尺度参数。
+  # 核函数尺度参数。
   sigma: 0.6
-  # 截断或鲁棒阈值参数。
+  # 截断阈值或鲁棒控制参数。
   tau: 1.0
-  # 额外的缩放或权重控制参数。
+  # 附加权重缩放参数。
   B: 1.0
-  # 每个桶中保留的前若干个候选数。
+  # 每个桶中保留的 top-m 候选数。
   top_m_per_bucket: 50
-  # 是否对特征进行归一化后再参与投票。
+  # 是否对特征做归一化。
   normalize_feature: true
 
-# KDE 精化模块相关配置。
+# KDE 与均值漂移精修参数。
 kde_refine:
-  # 是否使用角度嵌入表示。
+  # 该配置下模块关闭，但保留参数便于切换。
   use_angle_embedding: true
-  # 精化阶段保留的 top-k 候选数量。
+  # 精修时保留的 top-k 候选 bin 数量。
   top_k: 3
   # KDE 带宽参数。
   bandwidth_h: 0.35
   # 最大迭代次数。
   max_iter: 50
-  # 迭代收敛容差。
+  # 收敛容差。
   tol: 1.0e-4
+  refine_top_pose_k: 10
 
-# ICP 精化模块相关配置。
+# ICP 后处理参数。
 icp_refine:
-  # 是否启用 ICP 精化。
+  # 是否启用 ICP 精修。
   enable: false
   # ICP 最大迭代次数。
   max_iter: 30
-  # ICP 匹配距离阈值。
+  # ICP 距离阈值。
   distance_threshold: 5.0
 
-# 输出路径相关配置。
+# BOP 标注平移尺度参数。
+bop_gt:
+  # 平移缩放系数，通常毫米单位取 1.0。
+  t_scale: 1.0
+
+# 姿态聚类参数。
+pose_clustering:
+  # 当前配置不启用姿态聚类。
+  enable: false
+  # 姿态聚类的平移阈值，单位与点云一致。
+  pos_thresh: 20.0
+  # 姿态聚类的旋转阈值，单位为度。
+  rot_thresh_deg: 20.0
+  # 最小簇大小。
+  min_cluster_size: 1
+  # 是否按得分从高到低优先合并。
+  merge_by_score: true
+
+# 输出目录配置。
 output:
   # 实验输出根目录。
   root: experiments
   # 结果文件输出目录。
   results_dir: experiments/results
-  # 日志文件输出目录。
+  # 日志输出目录。
   logs_dir: experiments/logs
-  # 表格文件输出目录。
+  # 表格输出目录。
   tables_dir: experiments/tables
-  # 图像文件输出目录。
+  # 图像输出目录。
   figures_dir: experiments/figures

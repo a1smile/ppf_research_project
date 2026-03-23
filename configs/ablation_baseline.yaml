@@ -1,94 +1,100 @@
-# 随机种子，用于控制实验复现性。
+﻿# 基线消融配置。
+# 该配置关闭 RS-MRQ、Robust Vote、KDE 和 Pose Clustering，用于与增强版本做对照。
+
+# 随机种子。
 seed: 0
-# 体素下采样的叶子尺寸，用于降低点云密度。
+# 体素下采样尺寸。
 sampling_leaf: 15.0
-# 法向量估计时使用的邻域点数量。
+# 法向估计近邻数。
 normal_k: 5
 # 角度离散步长，单位为度。
 angle_step_deg: 12.0
-# 场景参考点的采样步长或采样率控制参数。
+# 场景参考点采样步长。
 scene_ref_sampling_rate: 20
-# 位置误差阈值，用于候选匹配筛选。
+# 原始姿态聚类平移阈值。
 pos_thresh: 0.005
-# 旋转误差阈值，单位为度。
+# 原始姿态聚类旋转阈值，单位为度。
 rot_thresh_deg: 30.0
-# 每次配准任务重复执行的次数。
+# 注册重复次数。
 registration_runs: 1
-# 是否在运行结束后进行可视化显示。
+# 是否可视化。
 visualize: false
-# 距离步长相对 sampling_leaf 的比例系数。
+# 距离步长比例。
 distance_step_ratio: 0.6
 
-# 是否启用 RS-MRQ 增强模块。
+# ---------- Adaptive Downsampling ----------
+# 是否启用自适应下采样。
+adaptive_downsample: true
+# 仅对场景点云应用自适应下采样。
+adaptive_downsample_apply_to: scene
+
+# 自适应下采样参数。
+adaptive_downsample_cfg:
+  no_downsample_thresh: 450
+  mid_thresh: 1500
+  large_thresh: 3000
+  target_mid: 500
+  target_large: 450
+  target_xlarge: 400
+  search_steps: 12
+  voxel_min: 1.0e-3
+  voxel_max_scale: 0.20
+
+# 增强模块全部关闭。
 enable_rsmrq: false
-# 是否启用鲁棒投票增强模块。
 enable_robust_vote: false
-# 是否启用 KDE 精化增强模块。
 enable_kde_refine: false
 
-# RS-MRQ 相关配置分组。
+# RS-MRQ 参数区，虽然基线关闭该模块，但保留完整配置便于切换。
 rsmrq:
-  # 哈希层数或多分辨率层级数。
   L: 2
-  # 每层使用的哈希表数量。
   T_tables: 4
-  # 不同层级下的离散窗口参数，通常对应三个角度维度和一个距离维度。
   w_levels:
-    # 第一层的角度和距离窗口设置。
     - [0.20943951, 0.20943951, 0.20943951, 3.0]
-    # 第二层的角度和距离窗口设置。
     - [0.41887902, 0.41887902, 0.41887902, 6.0]
-  # 多表结果的合并方式。
   merge_mode: union
-  # RS-MRQ 模块内部使用的随机种子。
   seed: 0
 
-# 鲁棒投票模块相关配置。
+# 鲁棒投票参数区，当前不启用。
 robust_vote:
-  # 核函数类型。
   kernel: gaussian
-  # 核函数或残差分布的尺度参数。
   sigma: 0.6
-  # 截断或鲁棒阈值参数。
   tau: 1.0
-  # 额外的缩放或权重控制参数。
   B: 1.0
-  # 每个桶中保留的前若干个候选数。
   top_m_per_bucket: 50
-  # 是否对特征进行归一化后再参与投票。
   normalize_feature: true
 
-# KDE 精化模块相关配置。
+# KDE 精修参数区，当前不启用。
 kde_refine:
-  # 是否使用角度嵌入表示。
   use_angle_embedding: true
-  # 精化阶段保留的 top-k 候选数量。
   top_k: 3
-  # KDE 带宽参数。
   bandwidth_h: 0.35
-  # 最大迭代次数。
   max_iter: 50
-  # 迭代收敛容差。
   tol: 1.0e-4
+  refine_top_pose_k: 10
 
-# ICP 精化模块相关配置。
+# ICP 精修参数。
 icp_refine:
-  # 是否启用 ICP 精化。
   enable: false
-  # ICP 最大迭代次数。
   max_iter: 30
-  # ICP 匹配距离阈值。
   distance_threshold: 5.0
 
-# 输出路径相关配置。
+# BOP 标注平移缩放系数。
+bop_gt:
+  t_scale: 1.0
+
+# Pose Clustering 参数区，基线下关闭。
+pose_clustering:
+  enable: false
+  pos_thresh: 20.0
+  rot_thresh_deg: 20.0
+  min_cluster_size: 1
+  merge_by_score: true
+
+# 输出目录配置。
 output:
-  # 实验输出根目录。
   root: experiments
-  # 结果文件输出目录。
   results_dir: experiments/results
-  # 日志文件输出目录。
   logs_dir: experiments/logs
-  # 表格文件输出目录。
   tables_dir: experiments/tables
-  # 图像文件输出目录。
   figures_dir: experiments/figures
