@@ -75,6 +75,7 @@ from .model_cache_io import load_ppf_model_cache
 
 # 导入姿态候选转换和姿态聚类函数。
 from .pose_clustering import hypotheses_from_posewithvotes, cluster_pose_hypotheses
+from .pose_selection import select_pose_hypotheses
 
 
 # 计算场景参考点到参考坐标系的刚体变换。
@@ -168,6 +169,14 @@ def ppf_register(
     pose_cluster_rot_thresh_rad = math.radians(pose_cluster_rot_thresh_deg)
     pose_cluster_min_size = int(pose_cluster_cfg.get("min_cluster_size", 1))
     pose_cluster_merge_by_score = bool(pose_cluster_cfg.get("merge_by_score", True))
+    pose_cluster_score_cfg = pose_cluster_cfg.get("score_weights", {})
+    pose_cluster_size_weight = float(pose_cluster_score_cfg.get("size", 0.40))
+    pose_cluster_mean_weight = float(pose_cluster_score_cfg.get("mean", 0.30))
+    pose_cluster_max_weight = float(pose_cluster_score_cfg.get("max", 0.30))
+
+    # 读取 pose selection 配置总开关。
+    pose_select_cfg = cfg.get("pose_selection", {})
+    enable_pose_selection = bool(pose_select_cfg.get("enable", False))
 
     # 读取 KDE 配置。
     kde_cfg = cfg.get("kde_refine", {})
@@ -524,14 +533,69 @@ def ppf_register(
         # 清空 KDE 样本缓存。
         samples.clear()
 
-    # 先尝试新的姿态聚类，再回退到原始 cluster_poses。
+    # 先做 pose selection，再做姿态模式聚类；若失败则回退到旧逻辑。
+    pose_selection_debug = {}
     pose_cluster_debug = {}
 
     # 初始化最终姿态。
     T_final = None
 
-    # 若启用姿态聚类且已有候选位姿，则优先执行新聚类。
-    if enable_pose_clustering and len(voted_poses) > 0:
+    # 先在候选姿态上做 multi-cue pose selection + top-k light refine。
+    selected_hypotheses = []
+    if enable_pose_selection and len(voted_poses) > 0:
+        selected_hypotheses, pose_selection_debug = select_pose_hypotheses(
+            voted_poses=voted_poses,
+            model_pts=model.pts,
+            model_normals=model.normals,
+            scene_pcd=scene_pcd,
+            cfg=cfg,
+            logger=logger,
+        )
+
+        if logger:
+            logger.info(
+                "[PoseSelection] "
+                f"enabled={enable_pose_selection} "
+                f"num_input={pose_selection_debug.get('num_input_candidates', 0)} "
+                f"num_preselected={pose_selection_debug.get('num_preselected', 0)} "
+                f"num_selected={pose_selection_debug.get('num_selected', 0)} "
+                f"num_light_refined={pose_selection_debug.get('num_light_refined', 0)} "
+                f"best_score={pose_selection_debug.get('best_score', 0.0):.4f} "
+                f"best_inlier={pose_selection_debug.get('best_inlier_ratio', 0.0):.4f}"
+            )
+
+    # 若 pose selection 成功产生候选，则优先用这些候选做模式聚类或直接选第一名。
+    if len(selected_hypotheses) > 0:
+        if enable_pose_clustering:
+            best_cluster, clusters_pc, pose_cluster_debug = cluster_pose_hypotheses(
+                selected_hypotheses,
+                pos_thresh=pose_cluster_pos_thresh,
+                rot_thresh_rad=pose_cluster_rot_thresh_rad,
+                min_cluster_size=pose_cluster_min_size,
+                merge_by_score=pose_cluster_merge_by_score,
+                size_weight=pose_cluster_size_weight,
+                mean_weight=pose_cluster_mean_weight,
+                max_weight=pose_cluster_max_weight,
+            )
+
+            if logger:
+                logger.info(
+                    "[PoseClustering] "
+                    f"enabled={enable_pose_clustering} "
+                    f"num_hypotheses={pose_cluster_debug.get('num_hypotheses', 0)} "
+                    f"num_clusters={pose_cluster_debug.get('num_clusters', 0)} "
+                    f"best_cluster_size={pose_cluster_debug.get('best_cluster_size', 0)} "
+                    f"best_cluster_score_sum={pose_cluster_debug.get('best_cluster_score_sum', 0.0):.3f} "
+                    f"best_cluster_mode_score={pose_cluster_debug.get('best_cluster_mode_score', 0.0):.4f}"
+                )
+
+            if best_cluster is not None:
+                T_final = best_cluster.T_rep
+        else:
+            T_final = selected_hypotheses[0].T
+
+    # 若新逻辑未得到结果，则回退到原始姿态聚类。
+    if T_final is None and enable_pose_clustering and len(voted_poses) > 0:
         hypos = hypotheses_from_posewithvotes(voted_poses)
 
         best_cluster, clusters_pc, pose_cluster_debug = cluster_pose_hypotheses(
@@ -540,23 +604,23 @@ def ppf_register(
             rot_thresh_rad=pose_cluster_rot_thresh_rad,
             min_cluster_size=pose_cluster_min_size,
             merge_by_score=pose_cluster_merge_by_score,
+            size_weight=pose_cluster_size_weight,
+            mean_weight=pose_cluster_mean_weight,
+            max_weight=pose_cluster_max_weight,
         )
 
         if logger:
             logger.info(
-                "[PoseClustering] "
-                f"enabled={enable_pose_clustering} "
+                "[PoseClustering][FallbackRawVotes] "
                 f"num_hypotheses={pose_cluster_debug.get('num_hypotheses', 0)} "
                 f"num_clusters={pose_cluster_debug.get('num_clusters', 0)} "
-                f"best_cluster_size={pose_cluster_debug.get('best_cluster_size', 0)} "
-                f"best_cluster_score_sum={pose_cluster_debug.get('best_cluster_score_sum', 0.0):.3f}"
+                f"best_cluster_mode_score={pose_cluster_debug.get('best_cluster_mode_score', 0.0):.4f}"
             )
 
-        # 若找到最佳簇，则使用其代表位姿。
         if best_cluster is not None:
             T_final = best_cluster.T_rep
 
-    # 若姿态聚类未得到结果，则回退到原始 cluster_poses。
+    # 若姿态聚类仍未得到结果，则回退到最原始的 cluster_poses。
     if T_final is None:
         best = cluster_poses(voted_poses, pos_thresh, rot_thresh_rad)
         T_final = best[0].T if best else np.eye(4, dtype=float)
@@ -566,6 +630,7 @@ def ppf_register(
         "candidate_inflation_mean": float(np.mean(candidate_inflations)) if candidate_inflations else 1.0,
         "robust_vote": rv_stats.summary() if enable_robust else {},
         "kde_refine_calls": kde_calls,
+        "pose_selection": pose_selection_debug,
         "pose_clustering": pose_cluster_debug,
     }
 
