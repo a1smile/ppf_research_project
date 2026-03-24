@@ -121,6 +121,14 @@ bop_gt:
   # 平移缩放系数，1.0 通常表示毫米制
   t_scale: 1.0
 
+symmetry:
+#  8:
+#    axis: z
+#    order: 2
+  10:
+    axis: z
+    order: 2
+
 # ---------- Non-learning Pose Selection ----------
 pose_selection:
   # 是否启用非学习式姿态筛选

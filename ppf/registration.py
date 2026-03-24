@@ -17,6 +17,10 @@ import time
 # 导入日志库，用于输出运行信息。
 import logging
 
+# 导入文件名解析工具。
+import os
+import re
+
 # 导入数据类装饰器，用于定义结构化结果。
 from dataclasses import dataclass
 
@@ -74,7 +78,11 @@ from .refine_icp import refine_icp_point_to_point
 from .model_cache_io import load_ppf_model_cache
 
 # 导入姿态候选转换和姿态聚类函数。
-from .pose_clustering import hypotheses_from_posewithvotes, cluster_pose_hypotheses
+from .pose_clustering import (
+    hypotheses_from_posewithvotes,
+    hypotheses_from_matrices,
+    cluster_pose_hypotheses,
+)
 from .pose_selection import select_pose_hypotheses
 
 
@@ -122,6 +130,108 @@ def compute_transform_sg(
     return T, R
 
 
+def _infer_obj_id_from_model_path(model_path: str) -> Optional[int]:
+    """
+    从模型文件名中解析 obj_id。
+    例如：
+    - obj_000008.ply -> 8
+    - model_12.ply   -> 12
+    """
+    name = os.path.splitext(os.path.basename(model_path))[0]
+    m = re.search(r"(\d+)$", name)
+    if m is None:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _axis_to_vec(axis_val: Any) -> Optional[List[float]]:
+    """
+    将配置中的 axis 转成三维向量。
+    支持：
+    - "x" / "y" / "z"
+    - [x, y, z]
+    """
+    if isinstance(axis_val, str):
+        a = axis_val.strip().lower()
+        if a == "x":
+            return [1.0, 0.0, 0.0]
+        if a == "y":
+            return [0.0, 1.0, 0.0]
+        if a == "z":
+            return [0.0, 0.0, 1.0]
+        return None
+
+    if isinstance(axis_val, (list, tuple)) and len(axis_val) == 3:
+        try:
+            return [float(axis_val[0]), float(axis_val[1]), float(axis_val[2])]
+        except Exception:
+            return None
+
+    return None
+
+
+def _build_symmetry_meta_from_cfg(model_path: str, cfg: dict) -> Optional[dict]:
+    """
+    从配置中读取当前 obj_id 的对称信息，转换成 pose_clustering.py 可识别的 meta 格式。
+
+    支持的 YAML 格式示例：
+    symmetry:
+      8:
+        axis: z
+        order: 2
+      10:
+        axis: [0, 0, 1]
+        order: 2
+
+    或：
+    symmetry:
+      "8":
+        rotations:
+          - [[1,0,0],[0,1,0],[0,0,1]]
+          - [[-1,0,0],[0,-1,0],[0,0,1]]
+    """
+    obj_id = _infer_obj_id_from_model_path(model_path)
+    if obj_id is None:
+        return None
+
+    sym_cfg = cfg.get("symmetry", {})
+    if not isinstance(sym_cfg, dict):
+        return None
+
+    obj_cfg = sym_cfg.get(obj_id, sym_cfg.get(str(obj_id), None))
+    if not isinstance(obj_cfg, dict):
+        return None
+
+    meta: Dict[str, Any] = {"obj_id": int(obj_id)}
+
+    axis_vec = _axis_to_vec(obj_cfg.get("axis", None))
+    order_val = obj_cfg.get("order", None)
+    if axis_vec is not None and order_val is not None:
+        try:
+            meta["symmetry_axis"] = axis_vec
+            meta["symmetry_order"] = int(order_val)
+        except Exception:
+            pass
+
+    rots_cfg = obj_cfg.get("rotations", None)
+    if isinstance(rots_cfg, list):
+        rots = []
+        for R in rots_cfg:
+            try:
+                R_np = np.asarray(R, dtype=np.float64)
+            except Exception:
+                continue
+            if R_np.shape == (3, 3):
+                rots.append(R_np)
+        if len(rots) > 0:
+            meta["symmetry_rotations"] = rots
+
+    return meta if len(meta) > 1 else None
+
+
 # 定义注册流程的统计信息结构。
 @dataclass
 class RegistrationStats:
@@ -160,6 +270,9 @@ def ppf_register(
     enable_rsmrq = bool(cfg.get("enable_rsmrq", False))
     enable_robust = bool(cfg.get("enable_robust_vote", False))
     enable_kde = bool(cfg.get("enable_kde_refine", False))
+
+    # 从运行时配置中读取当前对象的对称信息（若存在）。
+    symmetry_meta = cfg.get("_runtime_symmetry_meta", None)
 
     # 读取姿态聚类配置。
     pose_cluster_cfg = cfg.get("pose_clustering", {})
@@ -552,6 +665,14 @@ def ppf_register(
             logger=logger,
         )
 
+        # 若存在对称信息，则把它透传给 pose selection 产生的 hypotheses。
+        if symmetry_meta is not None:
+            for h in selected_hypotheses:
+                base_meta = h.meta if isinstance(getattr(h, "meta", None), dict) else {}
+                merged_meta = dict(base_meta)
+                merged_meta.update(symmetry_meta)
+                h.meta = merged_meta
+
         if logger:
             logger.info(
                 "[PoseSelection] "
@@ -596,7 +717,15 @@ def ppf_register(
 
     # 若新逻辑未得到结果，则回退到原始姿态聚类。
     if T_final is None and enable_pose_clustering and len(voted_poses) > 0:
-        hypos = hypotheses_from_posewithvotes(voted_poses)
+        # 若存在对称信息，则直接构造带 meta 的 hypotheses；否则保持原逻辑。
+        if symmetry_meta is not None:
+            hypos = hypotheses_from_matrices(
+                pose_mats=[vp.T for vp in voted_poses],
+                scores=[float(getattr(vp, "votes", 1.0)) for vp in voted_poses],
+                metas=[dict(symmetry_meta) for _ in voted_poses],
+            )
+        else:
+            hypos = hypotheses_from_posewithvotes(voted_poses)
 
         best_cluster, clusters_pc, pose_cluster_debug = cluster_pose_hypotheses(
             hypos,
@@ -633,6 +762,7 @@ def ppf_register(
         "pose_selection": pose_selection_debug,
         "pose_clustering": pose_cluster_debug,
     }
+
 
     # 返回最终位姿和调试信息。
     return T_final, debug
@@ -761,6 +891,11 @@ def run_registration(
                 logger=logger
             )
 
+    # 根据模型路径从配置里提取当前对象的对称信息，并透传到运行时配置。
+    cfg_runtime = dict(cfg)
+    cfg_runtime["_runtime_symmetry_meta"] = _build_symmetry_meta_from_cfg(model_path, cfg)
+
+
     # 对场景点云做预处理并执行注册。
     with Timer("registration", logger=logger) as tr:
         # 若启用自适应且 apply_to 包含 scene，则对 scene 使用自适应预处理。
@@ -794,7 +929,7 @@ def run_registration(
             logger.info(f"[AdaptiveDS][scene] {scene_ds_info}")
 
         # 执行核心 PPF 注册。
-        T_pred, debug = ppf_register(ppf_model, scene_down, cfg, logger=logger)
+        T_pred, debug = ppf_register(ppf_model, scene_down, cfg_runtime, logger=logger)
 
         # 将下采样调试信息附加到 debug 中，方便后续写 json 或日志时分析。
         debug["model_downsample"] = model_ds_info
