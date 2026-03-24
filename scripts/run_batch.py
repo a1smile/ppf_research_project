@@ -151,7 +151,7 @@ def process_one(task):
 def main():
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("--config", type=str, default="configs/ablation_full.yaml")
+    ap.add_argument("--config", type=str, default="configs/ablation_ours_kde.yaml")
     ap.add_argument("--csv", type=str, required=True,
                     help="CSV should contain at least: pcd_path, obj_token, frame_id, depth_path (for BOP GT)")
     ap.add_argument("--models_dir", type=str, required=True)
