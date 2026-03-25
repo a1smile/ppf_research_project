@@ -5,8 +5,8 @@ import logging
 import pandas as pd
 import numpy as np
 import open3d as o3d
-from multiprocessing import Pool, Manager, Lock
-from tqdm import tqdm  # 进度条
+from multiprocessing import Pool
+from tqdm import tqdm
 from datetime import datetime
 import traceback
 
@@ -34,6 +34,16 @@ G_USE_BOP_GT = False
 G_T_SCALE = 1.0
 G_RUN_DIR = None
 G_LOGGER = None
+
+
+def resolve_repo_path(path_str: str) -> str:
+    """
+    将路径统一解析为绝对路径：
+    - 绝对路径：原样返回
+    - 相对路径：按仓库根目录 ROOT 解析
+    """
+    path_str = str(path_str)
+    return path_str if os.path.isabs(path_str) else os.path.join(ROOT, path_str)
 
 
 # 根据 obj_id 在模型目录中查找模型文件。
@@ -68,10 +78,11 @@ def process_one(task):
     result = {"ok": False, "idx": int(idx), "error": "", "traceback": ""}
 
     try:
-        scene_path = str(row["pcd_path"])
+        scene_path_raw = str(row["pcd_path"])
+        scene_path = resolve_repo_path(scene_path_raw)
 
         if not os.path.exists(scene_path):
-            result["error"] = f"scene pcd missing: {scene_path}"
+            result["error"] = f"scene pcd missing: {scene_path} (raw={scene_path_raw})"
             return result
 
         T_gt = None
@@ -79,7 +90,8 @@ def process_one(task):
         obj_id_src = "csv"
 
         if G_USE_BOP_GT:
-            depth_path = str(row["depth_path"])
+            depth_path_raw = str(row["depth_path"])
+            depth_path = resolve_repo_path(depth_path_raw)
             frame_id = int(row["frame_id"])
             gt_id = int(row["obj_token"])
 
@@ -97,9 +109,12 @@ def process_one(task):
                 obj_id_src = "bop_gt"
 
         if obj_id is None:
-            if "obj_id" not in row:
-                raise ValueError("No obj_id in CSV and BOP GT not available. Provide obj_id or enable --use_bop_gt.")
-            obj_id = int(row["obj_id"])
+            if "obj_id" in row and not pd.isna(row["obj_id"]):
+                obj_id = int(row["obj_id"])
+            elif "expected_obj_id" in row and not pd.isna(row["expected_obj_id"]):
+                obj_id = int(row["expected_obj_id"])
+            else:
+                raise ValueError("No obj_id / expected_obj_id in CSV and BOP GT not available.")
 
         model_path = find_model_path(G_MODELS_DIR, obj_id)
 
@@ -121,6 +136,7 @@ def process_one(task):
             "obj_id_src": obj_id_src,
             "model_path": model_path,
             "scene_path": scene_path,
+            "scene_path_raw": scene_path_raw,
             "T_pred": T_pred.tolist(),
             "T_gt": (T_gt.tolist() if T_gt is not None else None),
             "stats": {
@@ -151,18 +167,25 @@ def process_one(task):
 def main():
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("--config", type=str, default="configs/ablation_ours_kde.yaml")
+    ap.add_argument("--config", type=str, default="configs/ablation_ours.yaml")
     ap.add_argument("--csv", type=str, required=True,
                     help="CSV should contain at least: pcd_path, obj_token, frame_id, depth_path (for BOP GT)")
     ap.add_argument("--models_dir", type=str, required=True)
     ap.add_argument("--out_prefix", type=str, default="batch")
     ap.add_argument("--limit", type=int, default=-1)
-    ap.add_argument("--use_bop_gt", action="store_true", help="If set, read scene_gt.json to get true obj_id and T_gt.")
-    ap.add_argument("--t_scale", type=float, default=1.0, help="GT translation scale: 1.0 for mm, 0.001 for meters.")
-    ap.add_argument("--num_workers", type=int, default=6, help="Number of worker processes.")
+    ap.add_argument("--use_bop_gt", action="store_true",
+                    help="If set, read scene_gt.json to get true obj_id and T_gt.")
+    ap.add_argument("--t_scale", type=float, default=1.0,
+                    help="GT translation scale: 1.0 for mm, 0.001 for meters.")
+    ap.add_argument("--num_workers", type=int, default=8,
+                    help="Number of worker processes.")
     args = ap.parse_args()
 
-    cfg = load_config(args.config if os.path.isabs(args.config) else os.path.join(ROOT, args.config))
+    config_path = resolve_repo_path(args.config)
+    csv_path = resolve_repo_path(args.csv)
+    models_dir = resolve_repo_path(args.models_dir)
+
+    cfg = load_config(config_path)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(cfg["output"]["results_dir"], f"{args.out_prefix}_{ts}")
@@ -175,7 +198,7 @@ def main():
     log_path = os.path.join(logs_dir, f"{args.out_prefix}.log")
     logger = setup_logger(log_path, level=logging.INFO)
 
-    df = pd.read_csv(args.csv)
+    df = pd.read_csv(csv_path)
     if args.limit > 0:
         df = df.head(args.limit)
 
@@ -201,11 +224,17 @@ def main():
 
     total_tasks = len(tasks)
     num_workers = int(args.num_workers)
+    logger.info(f"Config: {config_path}")
+    logger.info(f"CSV: {csv_path}")
+    logger.info(f"Models dir: {models_dir}")
     logger.info(f"Total tasks: {total_tasks}")
     logger.info(f"Num workers: {num_workers}")
 
-    with Pool(processes=num_workers, initializer=init_worker,
-              initargs=(cfg, args.models_dir, use_bop_gt, args.t_scale, run_dir, logger)) as pool:
+    with Pool(
+        processes=num_workers,
+        initializer=init_worker,
+        initargs=(cfg, models_dir, use_bop_gt, args.t_scale, run_dir, logger),
+    ) as pool:
         for ret in tqdm(pool.imap_unordered(process_one, tasks), total=total_tasks, desc="Processing", unit="task"):
             if ret["ok"]:
                 results.append(ret["record"])
@@ -219,13 +248,27 @@ def main():
     results.sort(key=lambda x: x["idx"])
 
     out_json = os.path.join(results_dir, f"{args.out_prefix}_batch.json")
-    save_json(out_json, {"results": results, "gt_ok": n_gt_ok, "gt_fail": n_gt_fail, "use_bop_gt": use_bop_gt,
-                         "t_scale": float(args.t_scale)})
+    save_json(
+        out_json,
+        {
+            "config_path": config_path,
+            "csv_path": csv_path,
+            "models_dir": models_dir,
+            "results": results,
+            "gt_ok": n_gt_ok,
+            "gt_fail": n_gt_fail,
+            "use_bop_gt": use_bop_gt,
+            "t_scale": float(args.t_scale),
+        }
+    )
 
     summary_json = os.path.join(run_dir, "summary.json")
     save_json(
         summary_json,
         {
+            "config_path": config_path,
+            "csv_path": csv_path,
+            "models_dir": models_dir,
             "total_tasks": total_tasks,
             "success_count": len(results),
             "failure_count": len(failures),

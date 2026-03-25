@@ -23,6 +23,8 @@ class PoseCluster:
     size: int
     max_score: float
     mean_score: float
+    mean_visibility_support: float = 0.0
+    mean_inlier_ratio: float = 0.0
     mode_score: float = 0.0
 
 
@@ -165,7 +167,6 @@ def symmetry_aware_rotation_angle_rad(
     syms1 = _symmetry_rotations_from_meta(meta1)
     syms2 = _symmetry_rotations_from_meta(meta2)
 
-    # 优先使用非平凡的对称群；若两边都没有，则和原逻辑完全一致。
     if len(syms1) > 1:
         syms = syms1
     elif len(syms2) > 1:
@@ -218,6 +219,15 @@ def choose_representative_member(
     return best_idx
 
 
+def _meta_float(meta: Optional[dict], key: str, default: float = 0.0) -> float:
+    if not isinstance(meta, dict):
+        return float(default)
+    try:
+        return float(meta.get(key, default))
+    except Exception:
+        return float(default)
+
+
 def hypotheses_from_posewithvotes(voted_poses: List[Any]) -> List[PoseHypothesis]:
     hypos: List[PoseHypothesis] = []
     for vp in voted_poses:
@@ -253,9 +263,11 @@ def cluster_pose_hypotheses(
     rot_thresh_rad: float = 0.35,
     min_cluster_size: int = 1,
     merge_by_score: bool = True,
-    size_weight: float = 0.40,
-    mean_weight: float = 0.30,
-    max_weight: float = 0.30,
+    size_weight: float = 0.45,
+    mean_weight: float = 0.20,
+    max_weight: float = 0.10,
+    visibility_weight: float = 0.15,
+    inlier_weight: float = 0.10,
 ) -> Tuple[Optional[PoseCluster], List[PoseCluster], Dict[str, Any]]:
     if len(hypotheses) == 0:
         return None, [], {
@@ -311,6 +323,8 @@ def cluster_pose_hypotheses(
         member_rotations = [hypotheses[i].T[:3, :3] for i in members]
         member_translations = np.stack([hypotheses[i].T[:3, 3] for i in members], axis=0)
         member_scores = [float(hypotheses[i].score) for i in members]
+        member_vis = [_meta_float(hypotheses[i].meta, "visibility_support", 0.0) for i in members]
+        member_inlier = [_meta_float(hypotheses[i].meta, "inlier_ratio", 0.0) for i in members]
 
         t_mean = np.mean(member_translations, axis=0)
         R_mean = average_rotations(member_rotations)
@@ -326,6 +340,9 @@ def cluster_pose_hypotheses(
 
         score_sum = float(np.sum(member_scores))
         mean_score = float(score_sum / max(1, len(members)))
+        mean_visibility_support = float(np.mean(member_vis)) if member_vis else 0.0
+        mean_inlier_ratio = float(np.mean(member_inlier)) if member_inlier else 0.0
+
         cluster = PoseCluster(
             members=members,
             score_sum=score_sum,
@@ -335,6 +352,8 @@ def cluster_pose_hypotheses(
             size=len(members),
             max_score=float(np.max(member_scores)),
             mean_score=mean_score,
+            mean_visibility_support=mean_visibility_support,
+            mean_inlier_ratio=mean_inlier_ratio,
             mode_score=0.0,
         )
         clusters.append(cluster)
@@ -352,18 +371,28 @@ def cluster_pose_hypotheses(
     max_size = max(c.size for c in clusters)
     max_mean = max(c.mean_score for c in clusters)
     max_max = max(c.max_score for c in clusters)
+    max_vis = max(c.mean_visibility_support for c in clusters)
+    max_inlier = max(c.mean_inlier_ratio for c in clusters)
+
     max_size = max(max_size, 1)
     max_mean = max(max_mean, 1e-12)
     max_max = max(max_max, 1e-12)
+    max_vis = max(max_vis, 1e-12)
+    max_inlier = max(max_inlier, 1e-12)
 
     for c in clusters:
         size_term = float(c.size) / float(max_size)
         mean_term = float(c.mean_score) / float(max_mean)
         max_term = float(c.max_score) / float(max_max)
+        vis_term = float(c.mean_visibility_support) / float(max_vis)
+        inlier_term = float(c.mean_inlier_ratio) / float(max_inlier)
+
         c.mode_score = (
             float(size_weight) * size_term
             + float(mean_weight) * mean_term
             + float(max_weight) * max_term
+            + float(visibility_weight) * vis_term
+            + float(inlier_weight) * inlier_term
         )
 
     clusters.sort(key=lambda c: (c.mode_score, c.score_sum, c.size, c.max_score), reverse=True)
@@ -375,15 +404,21 @@ def cluster_pose_hypotheses(
         "best_cluster_size": best_cluster.size,
         "best_cluster_score_sum": best_cluster.score_sum,
         "best_cluster_mode_score": best_cluster.mode_score,
+        "best_cluster_mean_visibility_support": best_cluster.mean_visibility_support,
+        "best_cluster_mean_inlier_ratio": best_cluster.mean_inlier_ratio,
         "largest_cluster_size": max(c.size for c in clusters),
         "cluster_sizes_top5": [c.size for c in clusters[:5]],
         "cluster_scores_top5": [c.score_sum for c in clusters[:5]],
         "cluster_mean_scores_top5": [c.mean_score for c in clusters[:5]],
+        "cluster_mean_visibility_top5": [c.mean_visibility_support for c in clusters[:5]],
+        "cluster_mean_inlier_top5": [c.mean_inlier_ratio for c in clusters[:5]],
         "cluster_mode_scores_top5": [c.mode_score for c in clusters[:5]],
         "mode_score_weights": {
             "size": float(size_weight),
             "mean": float(mean_weight),
             "max": float(max_weight),
+            "visibility": float(visibility_weight),
+            "inlier": float(inlier_weight),
         },
         "symmetry_aware": symmetry_aware_enabled,
     }

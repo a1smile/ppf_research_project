@@ -1,34 +1,20 @@
-﻿# 基线消融配置。
-# 该配置关闭 RS-MRQ、Robust Vote、KDE 和 Pose Clustering，用于与增强版本做对照。
+# 组 1：Baseline
+# 纯基线 PPF，不启用 RS-MRQ / Robust Vote / Pose Selection / KDE / Pose Clustering。
 
-# 随机种子。
 seed: 0
-# 体素下采样尺寸。
 sampling_leaf: 15.0
-# 法向估计近邻数。
 normal_k: 5
-# 角度离散步长，单位为度。
 angle_step_deg: 12.0
-# 场景参考点采样步长。
 scene_ref_sampling_rate: 20
-# 原始姿态聚类平移阈值。
 pos_thresh: 0.005
-# 原始姿态聚类旋转阈值，单位为度。
 rot_thresh_deg: 30.0
-# 注册重复次数。
 registration_runs: 1
-# 是否可视化。
 visualize: false
-# 距离步长比例。
 distance_step_ratio: 0.6
 
-# ---------- Adaptive Downsampling ----------
-# 是否启用自适应下采样。
 adaptive_downsample: true
-# 仅对场景点云应用自适应下采样。
 adaptive_downsample_apply_to: scene
 
-# 自适应下采样参数。
 adaptive_downsample_cfg:
   no_downsample_thresh: 450
   mid_thresh: 1500
@@ -40,12 +26,10 @@ adaptive_downsample_cfg:
   voxel_min: 1.0e-3
   voxel_max_scale: 0.20
 
-# 增强模块全部关闭。
 enable_rsmrq: false
 enable_robust_vote: false
 enable_kde_refine: false
 
-# RS-MRQ 参数区，虽然基线关闭该模块，但保留完整配置便于切换。
 rsmrq:
   L: 2
   T_tables: 4
@@ -55,7 +39,6 @@ rsmrq:
   merge_mode: union
   seed: 0
 
-# 鲁棒投票参数区，当前不启用。
 robust_vote:
   kernel: gaussian
   sigma: 0.6
@@ -64,34 +47,36 @@ robust_vote:
   top_m_per_bucket: 50
   normalize_feature: true
 
-# KDE 精修参数区，当前不启用。
 kde_refine:
   use_angle_embedding: true
   top_k: 3
   bandwidth_h: 0.35
-  max_iter: 50
-  tol: 1.0e-4
-  refine_top_pose_k: 10
+  max_iter: 15
+  tol: 1.0e-3
+  refine_top_pose_k: 1
 
-# ICP 精修参数。
 icp_refine:
   enable: false
   max_iter: 30
   distance_threshold: 5.0
 
-# BOP 标注平移缩放系数。
 bop_gt:
   t_scale: 1.0
 
-# Pose Clustering 参数区，基线下关闭。
+pose_selection:
+  enable: false
+
 pose_clustering:
   enable: false
   pos_thresh: 20.0
   rot_thresh_deg: 20.0
   min_cluster_size: 1
   merge_by_score: true
+  score_weights:
+    size: 0.60
+    mean: 0.25
+    max: 0.15
 
-# 输出目录配置。
 output:
   root: experiments
   results_dir: experiments/results

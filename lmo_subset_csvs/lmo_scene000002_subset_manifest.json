@@ -1,0 +1,26 @@
+{
+  "scene_id": 2,
+  "random_seed": 42,
+  "eligible_frame_count": 707,
+  "eval_frame_count": 500,
+  "eval_instance_count": 4000,
+  "tune_frame_count": 207,
+  "tune_instance_count": 1656,
+  "frame_token_to_obj_id": {
+    "0": 1,
+    "1": 5,
+    "2": 6,
+    "3": 8,
+    "4": 9,
+    "5": 10,
+    "6": 11,
+    "7": 12
+  },
+  "base_inst_dir": "data/LM-O (Linemod-Occluded)/lmo_test_all/test/_preprocessed_lmo/inst_pcd_visib/000002",
+  "depth_dir": "data/LM-O (Linemod-Occluded)/lmo_test_all/test/000002/depth",
+  "models_dir": "data/LM-O (Linemod-Occluded)/lmo_models/models_eval",
+  "eval_csv": "/mnt/data/lmo_subset_csvs/lmo_scene000002_eval_500.csv",
+  "tune_csv": "/mnt/data/lmo_subset_csvs/lmo_scene000002_tune_rest.csv",
+  "eval_frames_csv": "/mnt/data/lmo_subset_csvs/lmo_scene000002_eval_500_frames.csv",
+  "tune_frames_csv": "/mnt/data/lmo_subset_csvs/lmo_scene000002_tune_rest_frames.csv"
+}
